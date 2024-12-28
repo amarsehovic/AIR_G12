@@ -1,7 +1,8 @@
 import tkinter as tk
 from tkinter import messagebox
 from preprocessing import preprocess_data
-from model_training import train_model
+from transformer_model import train_transformer_model, tokenize_data
+import torch
 
 
 class MovieRecommendationApp:
@@ -13,9 +14,9 @@ class MovieRecommendationApp:
         print("Preprocessing data...")
         self.movies, self.ratings, self.user_profiles = preprocess_data()
 
-        # Train the recommendation model
-        print("Training model...")
-        self.model, self.testset = train_model(self.ratings)
+        # Train transformer-based model
+        print("Training transformer model...")
+        self.transformer_model, self.tokenizer = train_transformer_model(self.ratings, self.movies)
 
         # User ID Input
         self.label_user_id = tk.Label(root, text="Enter User ID:")
@@ -66,31 +67,23 @@ class MovieRecommendationApp:
                 self.listbox_recommendations.insert(tk.END, movie)
 
     def get_user_recommendations(self, user_id, selected_genre):
-        # Filter movies by genre if a genre is selected
+        # Filter movies by genre if applicable
         filtered_movies = self.movies
         if selected_genre != "All Genres":
             filtered_movies = filtered_movies[filtered_movies['genres'].str.contains(selected_genre, na=False)]
 
-        # Check if the user exists in the preprocessed user profiles
-        if user_id not in self.user_profiles['userId'].values:
-            # Fallback: Recommend top-rated movies for new users
-            top_movies = self.ratings.groupby('movieId')['rating'].mean().sort_values(ascending=False).head(5)
-            top_movies = filtered_movies[filtered_movies['movieId'].isin(top_movies.index)]
-            return top_movies['title'].tolist()
+        # Tokenize filtered movie titles
+        input_ids, attention_mask = tokenize_data(filtered_movies, self.tokenizer)
 
-        # Fetch the user's profile
-        user_profile = self.user_profiles[self.user_profiles['userId'] == user_id]
-        liked_movies = user_profile['movie_list'].iloc[0]
+        # Predict ratings for each movie
+        self.transformer_model.eval()
+        with torch.no_grad():
+            predictions = self.transformer_model(input_ids, attention_mask).squeeze().tolist()
 
-        # Predict ratings for unrated movies
-        unrated_movies = filtered_movies[~filtered_movies['movieId'].isin(liked_movies)]['movieId']
-        predictions = [
-            (movie, self.model.predict(user_id, movie).est) for movie in unrated_movies
-        ]
-
-        # Sort movies by predicted rating and recommend the top 5
-        recommendations = sorted(predictions, key=lambda x: x[1], reverse=True)[:5]
-        return [self.movies[self.movies['movieId'] == movie_id]['title'].iloc[0] for movie_id, _ in recommendations]
+        # Combine predictions with movie titles
+        filtered_movies['predicted_rating'] = predictions
+        top_movies = filtered_movies.sort_values(by='predicted_rating', ascending=False).head(5)
+        return top_movies['title'].tolist()
 
 
 # Run the app

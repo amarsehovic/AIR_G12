@@ -8,7 +8,7 @@ def preprocess_data():
 
     # Use a smaller subset of ratings for testing
     print("Reducing dataset size...")
-    small_ratings = ratings.sample(frac=0.1, random_state=42)  # Use 10% of the data
+    small_ratings = ratings.sample(frac=0.0000001, random_state=42)  # Use <1% of the data
 
     # Data Cleaning
     print("Cleaning data...")
