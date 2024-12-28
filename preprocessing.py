@@ -1,60 +1,46 @@
 import pandas as pd
-from sklearn.model_selection import train_test_split
-
 
 def preprocess_data():
-    # Load the datasets
+    # Load datasets
+    print("Loading datasets...")
     movies = pd.read_csv('ml-32m/movies.csv')
     ratings = pd.read_csv('ml-32m/ratings.csv')
 
+    # Use a smaller subset of ratings for testing
+    print("Reducing dataset size...")
+    small_ratings = ratings.sample(frac=0.1, random_state=42)  # Use 10% of the data
+
     # Data Cleaning
-    print("Cleaning Data...")
-    # Remove missing or invalid entries
-    ratings.dropna(inplace=True)
+    print("Cleaning data...")
+    small_ratings.dropna(inplace=True)
     movies.dropna(inplace=True)
 
     # Filter out users and movies with very few interactions
     min_user_ratings = 5
     min_movie_ratings = 10
-    user_counts = ratings['userId'].value_counts()
-    movie_counts = ratings['movieId'].value_counts()
-    ratings = ratings[ratings['userId'].isin(user_counts[user_counts >= min_user_ratings].index)]
-    ratings = ratings[ratings['movieId'].isin(movie_counts[movie_counts >= min_movie_ratings].index)]
+    user_counts = small_ratings['userId'].value_counts()
+    movie_counts = small_ratings['movieId'].value_counts()
+    small_ratings = small_ratings[small_ratings['userId'].isin(user_counts[user_counts >= min_user_ratings].index)]
+    small_ratings = small_ratings[small_ratings['movieId'].isin(movie_counts[movie_counts >= min_movie_ratings].index)]
 
     # Data Transformation
-    print("Transforming Data...")
-    # Parse timestamps into year and month
-    ratings['timestamp'] = pd.to_datetime(ratings['timestamp'], unit='s')
-    ratings['year'] = ratings['timestamp'].dt.year
-    ratings['month'] = ratings['timestamp'].dt.month
+    print("Transforming data...")
+    small_ratings['timestamp'] = pd.to_datetime(small_ratings['timestamp'], unit='s')
+    small_ratings['year'] = small_ratings['timestamp'].dt.year
+    small_ratings['month'] = small_ratings['timestamp'].dt.month
 
-    # Encode genres using one-hot encoding
-    print("Encoding genres...")
-    genre_dummies = movies['genres'].str.get_dummies(sep='|')
-    movies = pd.concat([movies, genre_dummies], axis=1)
-
-    # Feature Engineering: Create user profiles
+    # Feature Engineering: User Profiles
     print("Creating user profiles...")
-    user_profiles = ratings.groupby('userId').agg({
+    user_profiles = small_ratings.groupby('userId').agg({
         'rating': ['mean', 'count'],
         'movieId': lambda x: list(x)
     })
     user_profiles.columns = ['avg_rating', 'rating_count', 'movie_list']
     user_profiles.reset_index(inplace=True)
 
-    # Data Splitting
-    print("Splitting data...")
-    train, test = train_test_split(ratings, test_size=0.2, random_state=42)
-
-    # Return processed data
-    return movies, ratings, train, test, user_profiles
-
-
-# Run preprocessing
-if __name__ == "__main__":
-    movies, ratings, train, test, user_profiles = preprocess_data()
     print("Preprocessing complete.")
-    print(f"Movies: {movies.shape}")
-    print(f"Ratings: {ratings.shape}")
-    print(f"Train: {train.shape}, Test: {test.shape}")
-    print(user_profiles.head())
+    return movies, small_ratings, user_profiles
+
+if __name__ == "__main__":
+    movies, ratings, user_profiles = preprocess_data()
+    print(movies.head(), ratings.head(), user_profiles.head())
