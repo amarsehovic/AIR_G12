@@ -1,6 +1,8 @@
 from surprise import Dataset, Reader, SVD
 from surprise.model_selection import train_test_split
 from surprise.accuracy import rmse
+import numpy as np
+
 
 # Function to train the model
 def train_model(ratings):
@@ -21,7 +23,7 @@ def train_model(ratings):
     # Evaluate model
     print("Evaluating model...")
     predictions = model.test(testset)
-    print(f"RMSE: {rmse(predictions)}")
+    print(f"RMSE on test set: {rmse(predictions)}")
 
     # Return model and testset for further evaluation
     return model, testset
@@ -51,14 +53,46 @@ def evaluate_model(model, testset, k=5):
     precision = precision_at_k(predictions, k)
     print(f"Precision@{k}: {precision}")
 
-    return precision
+    # Calculate nDCG@K
+    def ndcg_at_k(predictions, k=5):
+        user_predictions = {}
+        for uid, _, true_r, est, _ in predictions:
+            if uid not in user_predictions:
+                user_predictions[uid] = []
+            user_predictions[uid].append((true_r, est))
+
+        ndcgs = []
+        for user, preds in user_predictions.items():
+            # Sort by estimated rating in descending order
+            preds.sort(key=lambda x: x[1], reverse=True)
+            # Get the top k predictions
+            top_k_preds = preds[:k]
+
+            # Compute DCG for this user
+            dcg = sum([rel / np.log2(i + 2) for i, (rel, _) in enumerate(top_k_preds)])
+
+            # Compute IDCG for this user (ideal ranking)
+            ideal_preds = sorted(preds, key=lambda x: x[0], reverse=True)[:k]
+            idcg = sum([rel / np.log2(i + 2) for i, (rel, _) in enumerate(ideal_preds)])
+
+            # Compute nDCG
+            ndcg = dcg / idcg if idcg > 0 else 0
+            ndcgs.append(ndcg)
+
+        # Return the average nDCG across users
+        return np.mean(ndcgs)
+
+    ndcg = ndcg_at_k(predictions, k)
+    print(f"nDCG@{k}: {ndcg}")
+
+    return precision, ndcg
 
 # Main function for testing
 if __name__ == "__main__":
     import pandas as pd
 
     # Load a smaller subset of data
-    ratings = pd.read_csv('ratings.csv').sample(frac=0.1, random_state=42)
+    ratings = pd.read_csv('ratings.csv')
 
     # Train model
     model, testset = train_model(ratings)

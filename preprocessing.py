@@ -3,12 +3,12 @@ import pandas as pd
 def preprocess_data():
     # Load datasets
     print("Loading datasets...")
-    movies = pd.read_csv('ml-32m/movies.csv')
-    ratings = pd.read_csv('ml-32m/ratings.csv')
+    movies = pd.read_csv('ml-latest-small/movies.csv')
+    small_ratings = pd.read_csv('ml-latest-small/ratings.csv')
 
     # Use a smaller subset of ratings for testing
     print("Reducing dataset size...")
-    small_ratings = ratings.sample(frac=0.1, random_state=42)  # Use 10% of the data
+    #small_ratings = ratings.sample(frac=0.1, random_state=42)  # Use 10% of the data
 
     # Data Cleaning
     print("Cleaning data...")
