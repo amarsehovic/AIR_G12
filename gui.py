@@ -6,6 +6,7 @@ from transformers import DistilBertTokenizer, DistilBertModel
 import torch
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
+import pickle
 
 
 class MovieRecommendationApp:
@@ -22,9 +23,9 @@ class MovieRecommendationApp:
         self.tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
         self.model = DistilBertModel.from_pretrained("distilbert-base-uncased")
 
-        # Precompute movie embeddings (distilBERT for movie descriptions)
-        print("Generating movie embeddings...")
-        self.movie_embeddings = self.generate_movie_embeddings()
+        # Precompute or load precomputed movie embeddings
+        print("Loading or generating movie embeddings...")
+        self.movie_embeddings = self.load_or_generate_movie_embeddings()
 
         # Train the recommendation model
         print("Training model...")
@@ -58,26 +59,17 @@ class MovieRecommendationApp:
         self.listbox_recommendations = tk.Listbox(root, height=5, width=50)
         self.listbox_recommendations.pack(pady=5)
 
-    def fetch_recommendations(self):
-        user_id = self.entry_user_id.get()
-        selected_genre = self.genre_var.get()
-
-        if not user_id.isdigit():
-            messagebox.showerror("Error", "Please enter a valid numeric User ID.")
-            return
-
-        user_id = int(user_id)
-
-        # Fetch personalized recommendations
-        recommendations = self.get_user_recommendations(user_id, selected_genre)
-
-        # Clear the listbox and add new recommendations
-        self.listbox_recommendations.delete(0, tk.END)
-        if not recommendations:
-            self.listbox_recommendations.insert(tk.END, "No recommendations available.")
-        else:
-            for movie in recommendations:
-                self.listbox_recommendations.insert(tk.END, movie)
+    def load_or_generate_movie_embeddings(self):
+        try:
+            with open("movie_embeddings.pkl", "rb") as f:
+                embeddings = pickle.load(f)
+            print("Loaded precomputed embeddings.")
+        except FileNotFoundError:
+            embeddings = self.generate_movie_embeddings()
+            with open("movie_embeddings.pkl", "wb") as f:
+                pickle.dump(embeddings, f)
+            print("Generated and saved new embeddings.")
+        return embeddings
 
     def generate_movie_embeddings(self):
         embeddings = {}
@@ -99,11 +91,41 @@ class MovieRecommendationApp:
         embedding = outputs.last_hidden_state[:, 0, :]
         return embedding.numpy().flatten()
 
+    def filter_movies_by_genre(self, selected_genre):
+        if selected_genre != "All Genres":
+            return self.movies[self.movies['genres'].str.contains(selected_genre, na=False)]
+        return self.movies
+
+    def compute_similarity(self, embedding, recommended_embeddings):
+        # Compute cosine similarity between embeddings
+        similarities = [cosine_similarity([embedding], [rec_embedding])[0][0] for rec_embedding in
+                        recommended_embeddings]
+        return np.mean(similarities)
+
+    def fetch_recommendations(self):
+        user_id = self.entry_user_id.get()
+        selected_genre = self.genre_var.get()
+
+        if not user_id.isdigit():
+            messagebox.showerror("Error", "Please enter a valid numeric User ID.")
+            return
+
+        user_id = int(user_id)
+
+        # Fetch personalized recommendations
+        recommendations = self.get_user_recommendations(user_id, selected_genre)
+
+        # Clear the listbox and add new recommendations
+        self.listbox_recommendations.delete(0, tk.END)
+        if not recommendations:
+            self.listbox_recommendations.insert(tk.END, "No recommendations available.")
+        else:
+            for movie in recommendations:
+                self.listbox_recommendations.insert(tk.END, movie)
+
     def get_user_recommendations(self, user_id, selected_genre):
         # Filter movies by genre if a genre is selected
-        filtered_movies = self.movies
-        if selected_genre != "All Genres":
-            filtered_movies = filtered_movies[filtered_movies['genres'].str.contains(selected_genre, na=False)]
+        filtered_movies = self.filter_movies_by_genre(selected_genre)
 
         # Check if the user exists in the preprocessed user profiles
         if user_id not in self.user_profiles['userId'].values:
@@ -144,14 +166,6 @@ class MovieRecommendationApp:
         sorted_similarities = sorted(similarity_scores, key=lambda x: x[1], reverse=True)[:5]
         return [(self.movies[self.movies['movieId'] == movie_id]['title'].iloc[0], score) for movie_id, score in
                 sorted_similarities]
-
-    def compute_similarity(self, embedding, recommended_embeddings):
-        # Compute cosine similarity between embeddings
-        similarities = []
-        for rec_embedding in recommended_embeddings:
-            similarity = cosine_similarity([embedding], [rec_embedding])
-            similarities.append(similarity[0][0])
-        return np.mean(similarities)
 
 
 # Run the app
