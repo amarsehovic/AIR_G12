@@ -1,7 +1,9 @@
 import tkinter as tk
 from tkinter import messagebox, ttk
+from transformers import DistilBertTokenizer, DistilBertModel
+from doBert import load_or_generate_movie_embeddings
 from preprocessing import preprocess_data
-from model_training import train_model
+from sklearn.metrics.pairwise import cosine_similarity
 from PIL import Image, ImageTk
 
 
@@ -43,9 +45,14 @@ class MovieRecommendationApp:
         print("Preprocessing data...")
         self.movies, self.ratings, self.user_profiles = preprocess_data()
 
-        # Train the recommendation model
-        print("Training model...")
-        self.model, self.testset = train_model(self.ratings)
+        # Load DistilBERT model and tokenizer
+        print("Loading DistilBERT model...")
+        self.tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
+        self.model = DistilBertModel.from_pretrained("distilbert-base-uncased")
+
+        # Precompute or load precomputed movie embeddings
+        print("Loading or generating movie embeddings...")
+        self.movie_embeddings = load_or_generate_movie_embeddings(self.movies, self.tokenizer, self.model)
 
         # ----- Left Frame Content -----
         label_width = 20
@@ -53,7 +60,7 @@ class MovieRecommendationApp:
         label_color = "#222222"
 
         # select User ID
-        self.label_user_id = tk.Label(self.left_frame, text="Select User ID:" , anchor="w", width=label_width, fg=label_color)
+        self.label_user_id = tk.Label(self.left_frame, text="Select User ID:", anchor="w", width=label_width, fg=label_color)
         self.label_user_id.pack(pady=(15, 5), padx=5, anchor="w")
 
         self.user_id_var = tk.StringVar()
@@ -109,56 +116,57 @@ class MovieRecommendationApp:
 
     def fetch_recommendations(self):
         user_id = self.user_id_var.get()
-        selected_genre = self.genre_var.get()
+        genre = self.genre_var.get()
         top_n = self.top_n_var.get()
 
+        # Get well-rated movies for the selected user
+        user_ratings = self.ratings[self.ratings['userId'] == int(user_id)]
+        well_rated_movies = user_ratings[user_ratings['rating'] >= 4.0]  # Filter high ratings (>= 4.0)
 
-        if not user_id.isdigit():
-            messagebox.showerror("Error", "Please select a valid numeric User ID.")
+        # If no well-rated movies, display message
+        if well_rated_movies.empty:
+            messagebox.showinfo("No Data", "This user has no well-rated movies.")
             return
 
-        user_id = int(user_id)
+        # Get movie IDs of well-rated movies
+        well_rated_movie_ids = well_rated_movies['movieId'].tolist()
 
-        # Update the recommendations label dynamically
-        self.label_recommendations.config(text=f"Top {top_n} movies:")
-
-        # Fetch personalized recommendations
-        recommendations = self.get_user_recommendations(user_id, selected_genre, top_n)
-
-        # Clear the listbox and add new recommendations
-        self.listbox_recommendations.delete(0, tk.END)
-        if not recommendations:
-            self.listbox_recommendations.insert(tk.END, "No recommendations available.")
+        # Filter movies by selected genre
+        if genre != "All Genres":
+            genre_movies = self.movies[self.movies['genres'].str.contains(genre)]
         else:
-            for index, movie in enumerate(recommendations, start=1):  # Add numbering (1, 2, 3, ...)
-                self.listbox_recommendations.insert(tk.END, f"{index}. {movie}")
+            genre_movies = self.movies
 
-    def get_user_recommendations(self, user_id, selected_genre, top_n):
-        # Filter movies by genre if a genre is selected
-        filtered_movies = self.movies
-        if selected_genre != "All Genres":
-            filtered_movies = filtered_movies[filtered_movies['genres'].str.contains(selected_genre, na=False)]
+        # Filter out movies the user has already rated
+        unseen_movies = genre_movies[~genre_movies['movieId'].isin(well_rated_movie_ids)]
 
-        # Check if the user exists in the preprocessed user profiles
-        if user_id not in self.user_profiles['userId'].values:
-            # Fallback: Recommend top-rated movies for new users
-            top_movies = self.ratings.groupby('movieId')['rating'].mean().sort_values(ascending=False).head(top_n)
-            top_movies = filtered_movies[filtered_movies['movieId'].isin(top_movies.index)]
-            return top_movies['title'].tolist()
+        # Get movie embeddings for unseen movies
+        unseen_movie_embeddings = {movie_id: self.movie_embeddings[movie_id] for movie_id in unseen_movies['movieId']}
 
-        # Fetch the user's profile
-        user_profile = self.user_profiles[self.user_profiles['userId'] == user_id]
-        liked_movies = user_profile['movie_list'].iloc[0]
+        # Get embeddings for the user's well-rated movies
+        well_rated_movie_embeddings = {movie_id: self.movie_embeddings[movie_id] for movie_id in well_rated_movie_ids}
 
-        # Predict ratings for unrated movies
-        unrated_movies = filtered_movies[~filtered_movies['movieId'].isin(liked_movies)]['movieId']
-        predictions = [
-            (movie, self.model.predict(user_id, movie).est) for movie in unrated_movies
-        ]
+        # Calculate cosine similarity between well-rated movies and unseen movies
+        recommendations = self.get_similar_movies(well_rated_movie_embeddings, unseen_movie_embeddings, top_n)
 
-        # Sort movies by predicted rating and recommend the top N
-        recommendations = sorted(predictions, key=lambda x: x[1], reverse=True)[:top_n]
-        return [self.movies[self.movies['movieId'] == movie_id]['title'].iloc[0] for movie_id, _ in recommendations]
+        # Display recommendations in the listbox
+        self.listbox_recommendations.delete(0, tk.END)  # Clear previous recommendations
+        for movie_id, similarity in recommendations:
+            movie_title = self.movies[self.movies['movieId'] == movie_id]['title'].values[0]
+            self.listbox_recommendations.insert(tk.END, f"{movie_title}")
+
+    def get_similar_movies(self, well_rated_movie_embeddings, unseen_movie_embeddings, top_n):
+        movie_similarities = []
+
+        # Compare each unseen movie with well-rated movies
+        for unseen_movie_id, unseen_embedding in unseen_movie_embeddings.items():
+            for well_rated_movie_id, well_rated_embedding in well_rated_movie_embeddings.items():
+                similarity = cosine_similarity([unseen_embedding], [well_rated_embedding])[0][0]
+                movie_similarities.append((unseen_movie_id, similarity))
+
+        # Sort by similarity and return the top N recommendations
+        movie_similarities.sort(key=lambda x: x[1], reverse=True)
+        return movie_similarities[:top_n]
 
 
 # Run the app

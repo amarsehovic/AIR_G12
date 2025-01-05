@@ -4,16 +4,13 @@ def preprocess_data():
     # Load datasets
     print("Loading datasets...")
     movies = pd.read_csv('ml-latest-small/movies.csv')
-    ratings = pd.read_csv('ml-latest-small/ratings.csv')
-
-    # Use a smaller subset of ratings for testing
-    print("Reducing dataset size...")
-    small_ratings = ratings.sample(frac=1, random_state=42)  # Use 10% of the data
+    small_ratings = pd.read_csv('ml-latest-small/ratings.csv')
 
     # Data Cleaning
     print("Cleaning data...")
     small_ratings.dropna(inplace=True)
     movies.dropna(inplace=True)
+    small_ratings = small_ratings[small_ratings['rating'].between(0.5, 5.0)]
 
     # Filter out users and movies with very few interactions
     min_user_ratings = 5
@@ -26,8 +23,6 @@ def preprocess_data():
     # Data Transformation
     print("Transforming data...")
     small_ratings['timestamp'] = pd.to_datetime(small_ratings['timestamp'], unit='s')
-    small_ratings['year'] = small_ratings['timestamp'].dt.year
-    small_ratings['month'] = small_ratings['timestamp'].dt.month
 
     # Feature Engineering: User Profiles
     print("Creating user profiles...")
@@ -40,6 +35,7 @@ def preprocess_data():
 
     print("Preprocessing complete.")
     return movies, small_ratings, user_profiles
+
 
 if __name__ == "__main__":
     movies, ratings, user_profiles = preprocess_data()
