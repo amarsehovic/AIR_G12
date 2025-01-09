@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import messagebox, ttk
 from transformers import DistilBertTokenizer, DistilBertModel
-from doBert import load_or_generate_movie_embeddings
+from doBert import load_or_generate_movie_embeddings, generate_movie_embeddings
 from preprocessing import preprocess_data
 from sklearn.metrics.pairwise import cosine_similarity
 from PIL import Image, ImageTk
@@ -52,6 +52,7 @@ class MovieRecommendationApp:
 
         # Precompute or load precomputed movie embeddings
         print("Loading or generating movie embeddings...")
+        #self.movie_embeddings = generate_movie_embeddings(self.movies, self.tokenizer, self.model)
         self.movie_embeddings = load_or_generate_movie_embeddings(self.movies, self.tokenizer, self.model)
 
         # ----- Left Frame Content -----

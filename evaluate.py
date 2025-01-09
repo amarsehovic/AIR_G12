@@ -1,82 +1,119 @@
-from transformers import DistilBertTokenizer, DistilBertForSequenceClassification, Trainer, TrainingArguments
-from sklearn.metrics import precision_recall_fscore_support, accuracy_score
-from datasets import Dataset
+import pickle
+import numpy as np
 import pandas as pd
-import torch
+from sklearn.metrics import precision_score, recall_score, f1_score, classification_report
+from sklearn.ensemble import RandomForestClassifier
+from surprise import Dataset, Reader, KNNBasic
+from surprise.model_selection import train_test_split
+from surprise import accuracy
 
-# Load your data
-from preprocessing import preprocess_data
-from doBert import load_or_generate_movie_embeddings
+# Funkcija za učitavanje embeddings
+def load_embeddings(file_path='movie_embeddings.pkl'):
+    """Load precomputed movie embeddings."""
+    with open(file_path, 'rb') as f:
+        return pickle.load(f)
 
-# Preprocessing
-print("Preprocessing data...")
-movies, ratings, user_profiles = preprocess_data(testing=True)
 
-# Load or generate embeddings
-print("Loading or generating movie embeddings...")
-tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
-model = DistilBertForSequenceClassification.from_pretrained("distilbert-base-uncased", num_labels=2)
-
-# Prepare datasets
-def create_dataset(user_profiles, movie_embeddings):
+def create_dataset(user_profiles, movie_embeddings, ratings):
+    """Create dataset using precomputed embeddings and user ratings."""
     data = []
     for _, row in user_profiles.iterrows():
         for movie_id in row['movie_list']:
-            data.append({
-                "input_text": f"User {row['userId']} watched Movie {movie_id}",
-                "label": 1  # Placeholder label
-            })
-    return Dataset.from_pandas(pd.DataFrame(data))
+            if movie_id in movie_embeddings:  # Proveri da li postoji embedding
+                # Pronađi ocenu korisnika za film
+                user_rating = ratings[(ratings['userId'] == row['userId']) & (ratings['movieId'] == movie_id)]
+                if not user_rating.empty:
+                    rating = user_rating.iloc[0]['rating']  # Prva ocena (jedna vrednost jer je dataset filtriran)
+                    label = 1 if rating >= 4 else 0  # 1 za dobre ocene, 0 za loše
+                else:
+                    label = 0  # Ako nema ocene, možeš postaviti podrazumevanu vrednost (npr. 0)
 
-train_dataset = create_dataset(user_profiles.iloc[:int(0.8 * len(user_profiles))], None)
-eval_dataset = create_dataset(user_profiles.iloc[int(0.8 * len(user_profiles)):], None)
+                # Dodaj u dataset
+                data.append({
+                    "embedding": movie_embeddings[movie_id],
+                    "label": label
+                })
+    return pd.DataFrame(data)  # Vraća pandas DataFrame
 
-# Tokenize the datasets
-def tokenize_function(examples):
-    return tokenizer(examples["input_text"], padding="max_length", truncation=True)
 
-train_dataset = train_dataset.map(tokenize_function, batched=True)
-eval_dataset = eval_dataset.map(tokenize_function, batched=True)
+# Učitaj embeddings
+print("Loading precomputed movie embeddings...")
+movie_embeddings = load_embeddings()
 
-# Compute metrics
-def compute_metrics(pred):
-    labels = pred.label_ids
-    preds = pred.predictions.argmax(-1)
-    precision, recall, f1, _ = precision_recall_fscore_support(labels, preds, average='weighted')
-    acc = accuracy_score(labels, preds)
-    return {
-        'accuracy': acc,
-        'precision': precision,
-        'recall': recall,
-        'f1': f1,
-    }
+# Load preprocessed data
+from preprocessing import preprocess_data
+movies, ratings, user_profiles = preprocess_data(testing=False)
 
-# Define training arguments
-training_args = TrainingArguments(
-    output_dir='./results',
-    evaluation_strategy="epoch",
-    per_device_train_batch_size=8,
-    per_device_eval_batch_size=8,
-    num_train_epochs=1,
-    weight_decay=0.01,
-    logging_dir='./logs',
-    logging_steps=10,
-)
+# Podela korisničkih profila na trening i evaluacioni skup
+train_user_profiles = user_profiles.iloc[:int(0.8 * len(user_profiles))]
+eval_user_profiles = user_profiles.iloc[int(0.8 * len(user_profiles)):]
 
-# Initialize the Trainer
-trainer = Trainer(
-    model=model,
-    args=training_args,
-    train_dataset=train_dataset,
-    eval_dataset=eval_dataset,
-    compute_metrics=compute_metrics,
-)
+# Kreiraj evaluacioni skup sa stvarnim label-ima
+eval_dataset = create_dataset(eval_user_profiles, movie_embeddings, ratings)
+train_dataset = create_dataset(train_user_profiles, movie_embeddings, ratings)
 
-# Train the model
-print("Training the model...")
-trainer.train()
+# Pripremi podatke za trening i evaluaciju
+X_train = list(train_dataset["embedding"])  # Embeddings za trening
+y_train = list(train_dataset["label"])  # Label za trening
 
-# Evaluate the model
-print("Evaluating the model...")
-eval_results = trainer.evaluate()
-print("Evaluation results:", eval_results)
+X_eval = list(eval_dataset["embedding"])  # Embeddings za evaluaciju
+y_true = list(eval_dataset["label"])  # Label za evaluaciju
+
+# --------- Random Forest ---------
+print("Training Random Forest model...")
+rf_model = RandomForestClassifier(n_estimators=100, random_state=42)
+rf_model.fit(X_train, y_train)
+
+# Generiši predikcije za Random Forest
+rf_y_pred = rf_model.predict(X_eval)
+
+# Evaluacija Random Forest modela
+rf_precision = precision_score(y_true, rf_y_pred, average='weighted', zero_division=1)
+rf_recall = recall_score(y_true, rf_y_pred, average='weighted', zero_division=1)
+rf_f1 = f1_score(y_true, rf_y_pred, average='weighted', zero_division=1)
+
+print("\nRandom Forest Evaluation Metrics:")
+print(f"Precision: {rf_precision:.4f}")
+print(f"Recall: {rf_recall:.4f}")
+print(f"F1 Score: {rf_f1:.4f}")
+
+print("\nRandom Forest Classification Report:")
+print(classification_report(y_true, rf_y_pred, zero_division=1))
+
+
+# --------- Collaborative Filtering ---------
+print("\nTraining Collaborative Filtering model...")
+reader = Reader(rating_scale=(0.5, 5.0))  # Skaliranje ocena
+data = Dataset.load_from_df(ratings[['userId', 'movieId', 'rating']], reader)
+
+# Podela na trening i test skup
+trainset, testset = train_test_split(data, test_size=0.2, random_state=42)
+
+# Treniraj Item-based CF model
+sim_options = {'name': 'cosine', 'user_based': False}  # Item-based
+cf_model = KNNBasic(sim_options=sim_options)
+cf_model.fit(trainset)
+
+# Generiši predikcije za test skup
+cf_predictions = cf_model.test(testset)
+
+# Evaluacija CF modela
+print("\nCollaborative Filtering RMSE:", accuracy.rmse(cf_predictions))
+print("Collaborative Filtering MAE:", accuracy.mae(cf_predictions))
+
+# Pretvori predikcije u binarne oznake
+cf_y_pred = [1 if pred.est >= 4 else 0 for pred in cf_predictions]
+cf_y_true = [1 if true_r >= 4 else 0 for (_, _, true_r, _, _) in cf_predictions]
+
+# Evaluacija sa binarnim oznakama
+cf_precision = precision_score(cf_y_true, cf_y_pred, average='weighted', zero_division=1)
+cf_recall = recall_score(cf_y_true, cf_y_pred, average='weighted', zero_division=1)
+cf_f1 = f1_score(cf_y_true, cf_y_pred, average='weighted', zero_division=1)
+
+print("\nCollaborative Filtering Evaluation Metrics:")
+print(f"Precision: {cf_precision:.4f}")
+print(f"Recall: {cf_recall:.4f}")
+print(f"F1 Score: {cf_f1:.4f}")
+
+print("\nCollaborative Filtering Classification Report:")
+print(classification_report(cf_y_true, cf_y_pred, zero_division=1))
