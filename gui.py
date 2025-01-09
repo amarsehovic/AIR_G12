@@ -119,6 +119,14 @@ class MovieRecommendationApp:
         genre = self.genre_var.get()
         top_n = self.top_n_var.get()
 
+        # Update the recommendations label based on the number of movies selected
+        if top_n == 3:
+            self.label_recommendations.config(text="Your top 3 movies to watch next")
+        elif top_n == 5:
+            self.label_recommendations.config(text="Your top 5 movies to watch next")
+        elif top_n == 10:
+            self.label_recommendations.config(text="Your top 10 movies to watch next")
+
         # Get well-rated movies for the selected user
         user_ratings = self.ratings[self.ratings['userId'] == int(user_id)]
         well_rated_movies = user_ratings[user_ratings['rating'] >= 4.0]  # Filter high ratings (>= 4.0)
@@ -151,9 +159,9 @@ class MovieRecommendationApp:
 
         # Display recommendations in the listbox
         self.listbox_recommendations.delete(0, tk.END)  # Clear previous recommendations
-        for movie_id, similarity in recommendations:
+        for index, (movie_id, similarity) in enumerate(recommendations, start=1):
             movie_title = self.movies[self.movies['movieId'] == movie_id]['title'].values[0]
-            self.listbox_recommendations.insert(tk.END, f"{movie_title}")
+            self.listbox_recommendations.insert(tk.END, f"{index}. {movie_title}")
 
     def get_similar_movies(self, well_rated_movie_embeddings, unseen_movie_embeddings, top_n):
         movie_similarities = []
