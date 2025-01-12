@@ -16,8 +16,8 @@ class MovieRecommendationApp:
 
         logo_path = "cinema2.png"  # Putanja do logotipa
         logo_image = Image.open(logo_path)  # Učitajte sliku
-        resized_logo = logo_image.resize((50, 50), Image.LANCZOS)  # Koristimo LANCZOS za visok kvalitet skaliranja
-        self.logo_image = ImageTk.PhotoImage(resized_logo)  # Konvertujte za tkinter
+        resized_logo = logo_image.resize((50, 50), Image.LANCZOS)  #koristimo LANCZOS za visok kvalitet skaliranja
+        self.logo_image = ImageTk.PhotoImage(resized_logo)  #konvertujte za tkinter
         self.logo_label = tk.Label(self.header_frame, image=self.logo_image, bg="white")
         self.logo_label.pack(side="left", padx=10)
 
@@ -93,7 +93,7 @@ class MovieRecommendationApp:
         self.listbox_recommendations = tk.Listbox(self.right_frame, height=20, width=60)
         self.listbox_recommendations.pack(pady=5)
 
-        self.footer_frame = tk.Frame(root, bg="#f0f0f0", height=30)  # Svetlosiva pozadina za footer
+        self.footer_frame = tk.Frame(root, bg="#f0f0f0", height=30)
         self.footer_frame.pack(fill="x", side="bottom", pady=5)
 
         self.footer_label = tk.Label(self.footer_frame, text="© Copyright", bg="#f0f0f0", fg="#333333",
