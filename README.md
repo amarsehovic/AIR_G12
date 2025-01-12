@@ -1,5 +1,5 @@
 # AIR_G12
-AIR
+Disclaimer: This project was developed with the assistance of AI tools, such as ChatGPT, which were used solely as examples and sources of information to gain insights and better understanding on how the DistilBERT model can be implmented and how is usually used.
 
 # Brief dataset description: 
 
